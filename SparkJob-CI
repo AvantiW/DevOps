@@ -1,0 +1,180 @@
+#########################################################
+			   CI Automation of a Spark Job
+#########################################################
+
+
+---** Fork the repo **---
+
+
+---** Install Docker, Docker-compose & Jenkins **---
+
+>> After installing Jenkins and Docker
+
+$ sudo apt install docker-compose -y
+
+
+---** Configure ubuntu & jenkins user to use docker **---
+
+$ sudo usermod -aG docker $USER
+
+$ sudo usermod -aG docker jenkins
+
+$ sudo systemctl restart jenkins
+
+$ sudo systemctl restart docker
+
+
+
+---** Install Docker & Docker Pipeline Plugin in Jenkins **---
+
+
+---** Configure github webhooks and update firewall **---
+
+>> Generate GitHub API token 
+Your account - settings - developer tools - Personal access tokens - admin:repo:hook
+
+>> Add API token in Jenkins
+Manage Jenkins -> System -> Github -> Add github server -> Give a name -> Add credentials -> Kind : secret text -> Add
+Click on Manage Hooks Checkbox
+Test Connection
+
+
+---** Configure Slack Notifications **---
+
+>> Install Slack Notification Plugin in Jenkins
+
+>> Go under your Slack and create a channel for alerts
+
+>> Create New App in Slack
+
+    - Apps -> Add Apps -> App Directory -> Manage -> Build -> Create An APP 
+    - Click From an app manifest
+    - Select your workspace
+    - Delete the example manifest that Slack provides
+    - Click YAML - Paste the following into the text box:
+
+display_information:
+  name: Jenkins
+features:
+  bot_user:
+    display_name: Jenkins
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:read
+      - chat:write
+      - chat:write.customize
+      - files:write
+      - reactions:write
+      - users:read
+      - users:read.email
+      - groups:read
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
+
+  	- Install App to worksapace
+  	- Copy the "Bot User OAuth Access Token"
+  	- Add the jenkins bot to alerts channel
+
+
+>> Configure Slack in Jenkins  
+Manage Jenkins -> System -> Slack 
+	- Credential -> Add new -> Secret text - Paste OAuth Access Token
+	- Default Channel - #alerts
+	- Click on Checkbox - Custom slack app bot user 
+
+
+----*** Build a Full CI/CD Pipeline for Spark Job ***----
+
+>>> New Item -> Pipeline ->
+
+>> Build Triggers - GitHub hook trigger for GITScm polling (Check it)
+
+>> Pipeline -> Pipeline script from SCM
+SCM - Git
+  Repository URL - https://github.com/aasemquazi/spark-job.git
+
+>> Credentials - Add - Username and password (Give uname and pass of Github)
+
+>> Branch - */main
+
+Save
+
+>>Now go under github and update jenkins file with below code and commit on github itself
+
+pipeline {
+    agent any
+
+    stages {
+       
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build the Docker image from the Dockerfile
+                    sh 'docker-compose build'
+                }
+            }
+        }
+
+        stage('Run Docker Container') {
+            steps {
+                script {
+                    // Run the container with docker-compose
+                    sh 'docker-compose up -d'
+                }
+            }
+        }
+
+        stage('Run Spark Job') {
+            steps {
+                script {
+                    // Tail the logs of the Spark job to ensure it's running
+                    sh 'docker-compose logs -f'
+                }
+            }
+        }
+    }
+
+    post {
+    	success {
+            script {
+                // Notify success to Slack
+                slackSend channel: '#spark-alerts', color: 'good', message: "Build SUCCESSFUL: ${env.JOB_NAME} [${env.BUILD_NUMBER}] (${env.BUILD_URL})"
+            }
+        }
+        failure {
+            script {
+                // Notify failure to Slack
+                slackSend channel: '#spark-alerts', color: 'danger', message: "Build FAILED: ${env.JOB_NAME} [${env.BUILD_NUMBER}] (${env.BUILD_URL})"
+            }
+        }
+        always {
+            script {
+                // Stop and remove containers after the job
+                sh 'docker-compose down'
+            }
+        }
+    }
+}
+
+
+
+#########################################################################################
+
+---** Troubleshooting **---
+
+For issues related to docker-compose
+
+$ docker-compose down --volumes
+
+$ docker system prune -a --volumes
+
+
+
+
+
+
+
